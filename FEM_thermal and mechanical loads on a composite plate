@@ -1,0 +1,135 @@
+import numpy as np
+import matplotlib.pyplot as plt
+
+# Thermal conductivity (W/mK)
+k = 20
+
+# Modulus of elasticity (GPa)
+E = 200 * 10**9
+
+# Poisson's ratio
+v = 0.3
+
+# Thermal expansion coefficient (K^(-1))
+alpha = 1.2 * 10**(-5)
+
+# Density (kg/m^3)
+rho = 7850
+
+# Dimensions of the plate (cm)
+L = 10
+W = 10
+H = 1
+
+# Temperature increase (°C)
+dT = 100
+
+# Mechanical load (N)
+P = 10
+
+# Number of elements
+nelem = 100
+
+# Element dimensions
+dx = L / nelem
+dy = W / nelem
+
+# Material properties
+C = E / (1 - v**2)
+G = E / (2 * (1 + v))
+
+# Thermal and mechanical loads
+q = k * alpha * dT / H
+N = P / (L * W)
+
+# Stiffness matrix
+K = np.zeros((2 * (nelem + 1)**2, 2 * (nelem + 1)**2))
+
+for i in range(nelem):
+    for j in range(nelem):
+        nodes = np.array([[i, j], [i + 1, j], [i + 1, j + 1], [i, j + 1]])
+        elem_dof = np.array([[2 * (i + j * (nelem + 1)), 2 * (i + j * (nelem + 1)) + 1],
+                            [2 * ((i + 1) + j * (nelem + 1)), 2 * ((i + 1) + j * (nelem + 1)) + 1],
+                            [2 * ((i + 1) + (j + 1) * (nelem + 1)), 2 * ((i + 1) + (j + 1) * (nelem + 1)) + 1],
+                            [2 * (i + (j + 1) * (nelem + 1)), 2 * (i + (j + 1) * (nelem + 1)) + 1]])
+        B = np.zeros((3, 8))
+        for k in range(4):
+            xi = nodes[k, 0]
+            eta = nodes[k, 1]
+            N1 = (1 - xi) * (1 - eta) / 4
+            N2 = (1 + xi) * (1 - eta) / 4
+            N3 = (1 + xi) * (1 + eta) / 4
+            N4 = (1 - xi) * (1 + eta) / 4
+            B[0, k * 2] = N1
+            B[0, k * 2 + 1] = 0
+            B[1, k * 2] = 0
+            B[1, k * 2 + 1] = N1
+            B[2, k * 2] = N1
+            B[2, k * 2 + 1] = N1
+
+        dNdxi = np.array([-1 / 4, 1 / 4, 1 / 4, -1 / 4])
+        dNdeta = np.array([-1 / 4, -1 / 4, 1 / 4, 1 / 4])
+        J = np.array([[np.dot(dNdxi, nodes[:, 0]), np.dot(dNdxi, nodes[:, 1])],
+                      [np.dot(dNdeta, nodes[:, 0]), np.dot(dNdeta, nodes[:, 1])]])
+        J_inv = np.linalg.inv(J)
+        dNdxi = dNdxi.reshape((4, 1))
+        dNdeta = dNdeta.reshape((4, 1))
+        B = np.zeros((2, 4))
+        B[0, 0:2] = np.dot(J_inv, dNdxi)
+        B[1, 0:2] = np.dot(J_inv, dNdeta)
+
+
+        # dNdxi = np.array([-1 / 4, 1 / 4, 1 / 4, -1 / 4])
+        # dNdeta = np.array([-1 / 4, -1 / 4, 1 / 4, 1 / 4])
+        # J = np.array([[np.dot(dNdxi, nodes[:, 0]), np.dot(dNdxi, nodes[:, 1])],
+        #               [np.dot(dNdeta, nodes[:, 0]), np.dot(dNdeta, nodes[:, 1])]])
+        # detJ = np.linalg.det(J)
+        # B[0, 0:2] = np.dot(np.linalg.inv(J), dNdxi)
+        # B[1, 0:2] = np.dot(np.linalg.inv(J), dNdeta)
+        B[0, 0:2] = np.dot(np.linalg.inv(J), dNdxi)
+        B[0, 2:4] = np.dot(np.linalg.inv(J), dNdxi)
+        B[0, 4:6] = np.dot(np.linalg.inv(J), dNdxi)
+        B[0, 6:8] = np.dot(np.linalg.inv(J), dNdxi)          
+        B[1, 2:4] = np.dot(np.linalg.inv(J), dNdeta)
+        B[1, 4:6] = np.dot(np.linalg.inv(J), dNdeta)
+        B[1, 6:8] = np.dot(np.linalg.inv(J), dNdeta)
+        D = np.array([[1, 0], [0, 1]])
+
+        Ke = np.dot(np.dot(B.transpose(), D), B) * detJ
+
+        for k in range(4):
+            for l in range(4):
+                K[elem_dof[k, 0], elem_dof[l, 0]] += Ke[k * 2, l * 2]
+                K[elem_dof[k, 0], elem_dof[l, 1]] += Ke[k * 2, l * 2 + 1]
+                K[elem_dof[k, 1], elem_dof[l, 0]] += Ke[k * 2 + 1, l * 2]
+                K[elem_dof[k, 1], elem_dof[l, 1]] += Ke[k * 2 + 1, l * 2 + 1]
+
+
+# Load vector
+F = np.zeros((2 * (nelem + 1)**2, 1))
+
+for i in range(nelem + 1):
+    for j in range(nelem + 1):
+        nid = i * (nelem + 1) + j
+        if (i == 0 or i == nelem) and (j == 0 or j == nelem):
+            F[2 * nid, 0] = q
+        elif i == 0 or i == nelem:
+            F[2 * nid, 0] = q / 2
+        elif j == 0 or j == nelem:
+            F[2 * nid, 0] = q / 2
+
+# Solve for displacements
+u = np.linalg.solve(K, F)
+
+# Extract x and y displacement values
+u_x = u[0::2]
+u_y = u[1::2]
+
+# Plot the displacement results
+plt.imshow(np.reshape(u_x, (nelem + 1, nelem + 1)), cmap='jet')
+plt.colorbar()
+plt.show()
+
+plt.imshow(np.reshape(u_y, (nelem + 1, nelem + 1)), cmap='jet')
+plt.colorbar()
+plt.show()
